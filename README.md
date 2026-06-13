@@ -1,4 +1,4 @@
-# RSS Emerging Tech Digest
+# Emerging Tech News Analysis
 
 End-to-end pipeline that polls 10 RSS feeds → fetches full article content (Jina) → semantic dedup → HKMA relevance filter → per-story LLM summary → Strategic Director Briefing (5-hat framework) → assembled digest.
 
