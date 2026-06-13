@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vanguard Insights — How It Works</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+  :root {
+    --ink:#0A0E1A; --surface:#0F1528; --surface-2:#161E3A; --surface-3:#1C254A;
+    --border:#1E2A55; --text:#E2E8F0; --text-muted:#8892B0;
+    --accent:#F45B4F; --accent-glow:rgba(244,91,79,0.2);
+    --teal:#14B8A6; --gold:#F5C842; --green:#4ADE80;
+    --font:'Inter',-apple-system,sans-serif; --mono:'JetBrains Mono',monospace;
+  }
+
+  html,body{width:100%;height:100%;overflow:hidden;background:var(--ink);font-family:var(--font);color:var(--text);}
+  .deck{position:relative;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center;}
+  .slide-container{position:relative;width:min(100vw,1920/1080*100vh);height:min(100vh,1080/1920*100vw);aspect-ratio:1920/1080;overflow:hidden;background:var(--surface);border-radius:4px;box-shadow:0 0 80px rgba(0,0,0,0.5);}
+  .slides-wrapper{position:absolute;inset:0;transition:transform 0.5s cubic-bezier(0.4,0,0.2,1);display:flex;}
+  .slide{flex:0 0 100%;height:100%;padding:48px 64px;display:flex;flex-direction:column;position:relative;overflow:hidden;}
+  .slide::before{content:'';position:absolute;top:-180px;right:-180px;width:420px;height:420px;background:radial-gradient(circle,var(--accent-glow) 0%,transparent 70%);pointer-events:none;}
+  .slide-n{position:absolute;bottom:20px;right:28px;font-size:15px;color:var(--text-muted);font-weight:500;letter-spacing:0.5px;}
+  .slide-n span{color:var(--accent);}
+
+  .fade-in{animation:fadeIn 0.5s ease forwards;}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  .slide .fade-in{opacity:0;}
+  .slide.active .fade-in:nth-child(1){animation-delay:0.04s;}
+  .slide.active .fade-in:nth-child(2){animation-delay:0.08s;}
+  .slide.active .fade-in:nth-child(3){animation-delay:0.12s;}
+  .slide.active .fade-in:nth-child(4){animation-delay:0.16s;}
+  .slide.active .fade-in:nth-child(5){animation-delay:0.2s;}
+  .slide.active .fade-in:nth-child(6){animation-delay:0.24s;}
+  .slide.active .fade-in:nth-child(7){animation-delay:0.28s;}
+  .slide.active .fade-in:nth-child(8){animation-delay:0.32s;}
+  @media(prefers-reduced-motion:reduce){.slides-wrapper{transition:none}.fade-in,.slide .fade-in{animation:none;opacity:1;}}
+
+  .action-title{font-size:24px;font-weight:700;line-height:1.35;color:#fff;margin-bottom:8px;letter-spacing:-0.3px;}
+  .sec-sub{font-size:16px;color:var(--text-muted);font-weight:400;margin-bottom:16px;}
+
+  /* Slide 1: Title + Source Table */
+  .slide.s1{justify-content:center;align-items:stretch;text-align:left;}
+  .slide.s1 .action-title{text-align:center;max-width:92%;margin:0 auto 2px;}
+  .slide.s1 .tagline{text-align:center;max-width:82%;margin:0 auto 6px;}
+
+  .tb-wrap{overflow-y:auto;margin:auto;padding-right:4px;max-height:70%;}
+  .tb-wrap::-webkit-scrollbar{width:4px;}
+  .tb-wrap::-webkit-scrollbar-track{background:transparent;}
+  .tb-wrap::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:2px;}
+
+  .src-table{width:100%;border-collapse:collapse;font-size:13px;border:2px solid #3B4D7C;}
+  .src-table thead th{text-align:left;padding:8px 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#94A3B8;background:#0F1933;border-bottom:2px solid var(--accent);}
+  .src-table .th-cat{width:20%;}
+  .src-table .th-pct{width:6%;}
+  .src-table .th-name{width:20%;}
+  .src-table .th-desc{width:54%;}
+  .src-table tbody tr td{padding:6px 12px;vertical-align:middle;color:#C8D0E0;background:var(--surface-2);}
+  .src-table tbody tr td.td-d{font-size:12px;line-height:1.35;color:#94A3B8;}
+
+  .src-table tbody tr td{border-bottom:1px solid #2E3F66;}
+  .src-table tbody tr:last-child td{border-bottom:2px solid #3B4D7C;}
+
+  .cb{display:inline-block;padding:3px 10px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:0.3px;white-space:nowrap;}
+  .cb.ai{background:rgba(20,184,166,0.2);color:#2DD4BF;}
+  .cb.cs{background:rgba(244,91,79,0.2);color:#F87171;}
+  .cb.ft{background:rgba(245,200,66,0.2);color:#FBBF24;}
+  .cb.w3{background:rgba(139,92,246,0.2);color:#A78BFA;}
+  .cb.rg{background:rgba(249,115,22,0.2);color:#FDBA74;}
+
+  .src-table .pct{font-weight:700;font-size:13px;color:#E2E8F0;}
+
+  .src-table tbody .r-ai td{border-left:3px solid #2DD4BF;}
+  .src-table tbody .r-cs td{border-left:3px solid #F87171;}
+  .src-table tbody .r-ft td{border-left:3px solid #FBBF24;}
+  .src-table tbody .r-w3 td{border-left:3px solid #A78BFA;}
+  .src-table tbody .r-rg td{border-left:3px solid #FDBA74;}
+  .src-table tbody tr:hover td{background:#1A2545;cursor:default;}
+
+  .s1 .src-summary{margin-top:4px;display:flex;gap:10px;align-items:center;justify-content:center;font-size:12px;color:var(--text-muted);}
+  .s1 .src-summary strong{color:var(--text);font-weight:600;}
+
+  /* Slide 2: Pipeline */
+  .pl-grid{display:grid;grid-template-columns:1fr 32px 1fr 32px 1fr;grid-template-rows:1fr 30px 1fr;gap:6px 0;flex:1;margin-top:4px;grid-template-areas:"a1 r1 a2 r2 a3" ". . . . d1" "a4 r4 a5 r5 a6";}
+  .pc{padding:15px 17px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);display:flex;flex-direction:column;}
+  .pc .pc-head{display:flex;align-items:center;gap:9px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);}
+  .pc .pc-n{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0;}
+  .pc .pc-n.c1{background:var(--accent);}
+  .pc .pc-n.c2{background:var(--teal);}
+  .pc .pc-n.c3{background:var(--gold);color:var(--ink);}
+  .pc .pc-n.c4{background:#8B5CF6;}
+  .pc .pc-n.c5{background:var(--green);color:var(--ink);}
+  .pc .pc-n.c6{background:#F97316;}
+  .pc .pc-icon{font-size:19px;flex-shrink:0;}
+  .pc .pc-title{font-size:20px;font-weight:600;}
+  .pc .pc-body{font-size:16px;color:var(--text-muted);line-height:1.5;flex:1;padding-top:4px;}
+  .pc .pc-tags{display:flex;gap:3px;flex-wrap:wrap;margin-top:auto;padding-top:6px;border-top:1px solid var(--border);}
+  .pc .pc-tags span{padding:3px 9px;border-radius:4px;font-size:12px;font-weight:600;background:var(--surface-3);color:var(--text-muted);}
+  .pc .pc-tags .ac{background:rgba(244,91,79,0.15);color:var(--accent);}
+  .pc .pc-tags .tl{background:rgba(20,184,166,0.15);color:var(--teal);}
+  .pc .pc-tags .gd{background:rgba(245,200,66,0.15);color:var(--gold);}
+  .pc .pc-tags .vt{background:rgba(139,92,246,0.15);color:#A78BFA;}
+  .pa{display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:700;}
+  .ha{font-size:36px;}
+  .va{font-size:32px;align-items:flex-start;padding-top:2px;}
+
+  /* Slide 3: Frameworks (5-hat Director layout) */
+  .fw-grid{display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:auto auto;gap:12px;flex:1;grid-template-areas:"h1 h2 h3" "h4 h5 .";}
+  .fc{padding:20px 22px;border-radius:10px;border:1px solid var(--border);background:var(--surface-2);display:flex;flex-direction:column;}
+  .fc .fl{display:inline-block;padding:5px 12px;border-radius:4px;font-size:12px;font-weight:700;letter-spacing:0.5px;margin-bottom:6px;text-transform:uppercase;}
+  .fc .fl.l1{background:rgba(244,91,79,0.15);color:var(--accent);}
+  .fc .fl.l2{background:rgba(20,184,166,0.15);color:var(--teal);}
+  .fc .fl.l3{background:rgba(139,92,246,0.15);color:#A78BFA;}
+  .fc .fl.l4{background:rgba(245,200,66,0.15);color:var(--gold);}
+  .fc .fl.l5{background:rgba(74,222,128,0.15);color:var(--green);}
+  .fc h4{font-size:18px;font-weight:600;margin-bottom:5px;}
+  .fc .fc-body{font-size:15px;color:var(--text-muted);line-height:1.45;flex:1;}
+  .fc .fe{margin-top:auto;padding-top:8px;border-top:1px solid var(--border);font-family:var(--mono);font-size:13px;line-height:1.55;}
+  .fc .fe .eh{color:var(--teal);}
+  .fc .fe .ea{color:var(--accent);}
+  .fc .fe .eg{color:var(--gold);}
+  .fw-note{margin-top:8px;padding:10px 18px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);display:flex;align-items:center;gap:12px;font-size:15px;}
+  .fw-note .nb{padding:4px 10px;border-radius:4px;background:rgba(244,91,79,0.12);color:var(--accent);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;flex-shrink:0;}
+  .fw-note p{color:var(--text-muted);}
+
+  /* Slide 4: Output */
+  .out-scroll{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding-right:6px;}
+  .out-scroll::-webkit-scrollbar{width:4px;}
+  .out-scroll::-webkit-scrollbar-track{background:transparent;}
+  .out-scroll::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:2px;}
+  .oblock{padding:18px 22px;border-radius:10px;border:1px solid var(--border);background:var(--surface-2);}
+  .oblock .ob-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border);}
+  .oblock .ob-icon{font-size:15px;}
+  .oblock .ob-source{font-size:14px;color:var(--text-muted);font-weight:500;margin-left:auto;}
+  .oblock .ob-title{font-size:20px;font-weight:600;}
+  .oblock .ob-body{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .oblock .ob-col .ob-label{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:5px;}
+  .oblock .ob-col .ob-bullets{font-size:15px;line-height:1.55;color:var(--text-muted);}
+  .oblock .ob-col .ob-bullets .dot{color:var(--teal);}
+  .oblock .ob-col .ob-insight{font-family:var(--mono);font-size:14px;line-height:1.65;}
+  .oblock .ob-col .ob-insight strong{color:#fff;}
+  .oblock .ob-const{font-size:13px;color:var(--text-muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);display:flex;gap:12px;}
+  .oblock .ob-const span{background:var(--surface-3);padding:3px 9px;border-radius:4px;}
+
+  /* Nav */
+  .nav-dots{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:7px;z-index:10;}
+  .nav-dot{width:7px;height:7px;border-radius:50%;background:var(--surface-3);border:none;cursor:pointer;transition:all 0.2s;}
+  .nav-dot.active{background:var(--accent);width:22px;border-radius:3.5px;}
+  .nav-dot:hover{background:var(--text-muted);}
+
+  /* Consulting-style callout */
+  .callout{display:flex;align-items:center;gap:12px;padding:14px 20px;border-radius:6px;background:rgba(244,91,79,0.06);border-left:3px solid var(--accent);margin-top:10px;}
+  .callout .cl-icon{font-size:14px;flex-shrink:0;}
+  .callout p{font-size:15px;color:var(--text-muted);line-height:1.45;}
+  .callout p strong{color:var(--text);}
+
+  @media(max-aspect-ratio:1920/1080){
+    .slide{padding:3vh 4vh;}
+    
+    .slide.s1 .tagline{font-size:1.25vh;}
+    
+    .action-title{font-size:2.2vh;}
+    .sec-sub{font-size:1.3vh;}
+    .pl-grid{gap:0.3vh 0;}
+    .pc{padding:0.9vh 1.1vh;}
+    .pc .pc-title{font-size:1.5vh;}
+    .pc .pc-body{font-size:1.2vh;}
+    .pc .pc-tags span{font-size:1vh;}
+    .ha{font-size:3vh;}
+    .va{font-size:2.6vh;}
+    .fc{padding:1.5vh;}
+    .fc h4{font-size:1.5vh;}
+    .fc .fc-body{font-size:1.2vh;}
+    .fc .fe{font-size:1.1vh;}
+    .fw-note{font-size:1.3vh;padding:1vh 1.6vh;}
+    .oblock{padding:1.2vh 1.6vh;}
+    .oblock .ob-title{font-size:1.5vh;}
+    .oblock .ob-col .ob-bullets{font-size:1.15vh;}
+    .oblock .ob-col .ob-insight{font-size:1.1vh;}
+    .oblock .ob-const{font-size:1.05vh;}
+    .callout{font-size:0.9vh;padding:0.7vh 1.2vh;}
+    .slide-n{font-size:1.2vh;bottom:1.5vh;right:2vh;}
+  }
+</style>
+</head>
+<body>
+<div class="deck">
+<div class="slide-container" id="deck">
+<div class="slides-wrapper" id="slidesWrapper">
+
+<!-- SLIDE 1: Title + Source Table -->
+<div class="slide s1 active" data-index="0">
+  <div class="fade-in" style="margin-bottom:10px">
+    <p class="action-title" style="font-size:28px;margin-bottom:4px">Ten emerging-technology sources across five categories deliver decision-ready intelligence.</p>
+    <p class="tagline" style="font-size:15px;color:var(--text-muted);font-weight:400">Allocation weighted toward AI infrastructure, with dedicated coverage of cyber risk, fintech, Web3, and HK regulatory policy</p>
+  </div>
+  <div class="tb-wrap fade-in">
+    <table class="src-table">
+      <thead>
+        <tr><th class="th-cat">Category</th><th class="th-pct">Alloc</th><th class="th-name">RSS Feed</th><th class="th-desc">Focus Area</th></tr>
+      </thead>
+      <tbody>
+        <tr class="r-ai"><td><span class="cb ai">AI and Digital Transformation</span></td><td class="pct">60%</td><td>SemiAnalysis</td><td class="td-d">AI infrastructure economics, LLM hardware constraints, API pricing models</td></tr>
+        <tr class="r-ai"><td></td><td></td><td>Import AI</td><td class="td-d">Applied AI breakthroughs, enterprise adoption, curated weekly digests</td></tr>
+        <tr class="r-ai"><td></td><td></td><td>Latent Space</td><td class="td-d">AI Engineer stack, RAG architecture, agentic frameworks and tools</td></tr>
+        <tr class="r-ai"><td></td><td></td><td>VentureBeat: Enterprise AI</td><td class="td-d">LLM service announcements, GenAI product launches, vendor partnerships</td></tr>
+        <tr class="r-ai"><td></td><td></td><td>Gradient Flow</td><td class="td-d">Data pipelines, AI data governance, infrastructure for LLM deployment</td></tr>
+        <tr class="r-ai"><td></td><td></td><td>InfoQ: AI, ML and Data Eng</td><td class="td-d">LLM integration into microservices, ML pipelines, system reliability</td></tr>
+        <tr class="r-cs"><td><span class="cb cs">Cyber Security</span></td><td class="pct">10%</td><td>Dark Reading</td><td class="td-d">Enterprise threat landscape, Zero Trust, API security, AI-specific risks</td></tr>
+        <tr class="r-ft"><td><span class="cb ft">Fin-Tech</span></td><td class="pct">10%</td><td>Payments Dive</td><td class="td-d">Payments industry news, digital banking trends, fintech regulation and policy</td></tr>
+        <tr class="r-w3"><td><span class="cb w3">Web3</span></td><td class="pct">10%</td><td>Ledger Insights</td><td class="td-d">Institutional Web3, RWA tokenization, CBDCs, enterprise blockchain</td></tr>
+        <tr class="r-rg"><td><span class="cb rg">HK Tech Regulation</span></td><td class="pct">10%</td><td>HKMA</td><td class="td-d">HKMA circulars on banking tech risk, operational resilience, and AI guidelines</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="src-summary fade-in"><span><strong>10</strong> sources</span><span>|</span><span><strong>5</strong> categories</span><span>|</span><span>60% AI, 10% each Cyber, FinTech, Web3, Regulation</span></div>
+  <span class="slide-n"><span>01</span> / 04</span>
+</div><!-- SLIDE 2: Pipeline -->
+<div class="slide" data-index="1">
+  <p class="action-title fade-in">A six-stage pipeline collects full article content, eliminates duplicates across feeds, and delivers per-story analysis.</p>
+  <p class="sec-sub fade-in">Each step progresses from raw signal to decision-ready intelligence with individual word budgets</p>
+  <div class="pl-grid fade-in">
+    <div class="pc" style="grid-area:a1;">
+      <div class="pc-head"><span class="pc-n c1">1</span><span class="pc-icon">&#x1F4E1;</span><span class="pc-title">Ingest Signals</span></div>
+      <div class="pc-body">&#8226; Collects from 10 trusted sources<br/>&#8226; First scan establishes baseline<br/>&#8226; Only new content flows through</div>
+      <div class="pc-tags"><span class="ac">10 sources</span><span>5 categories</span><span>No replays</span></div>
+    </div>
+    <div class="pa ha" style="grid-area:r1;">&#8594;</div>
+    <div class="pc" style="grid-area:a2;">
+      <div class="pc-head"><span class="pc-n c2">2</span><span class="pc-icon">&#x1F517;</span><span class="pc-title">Retrieve Full Story</span></div>
+      <div class="pc-body">&#8226; Headlines alone are insufficient<br/>&#8226; Retrieves complete article text<br/>&#8226; Grounds analysis in all the facts</div>
+      <div class="pc-tags"><span class="tl">Full context</span><span>Accurate analysis</span><span>Beyond headline</span></div>
+    </div>
+    <div class="pa ha" style="grid-area:r2;">&#8594;</div>
+    <div class="pc" style="grid-area:a3;">
+      <div class="pc-head"><span class="pc-n c3">3</span><span class="pc-icon">&#x1F50D;</span><span class="pc-title">Eliminate Redundancy</span></div>
+      <div class="pc-body">&#8226; Same story across multiple sources<br/>&#8226; Compares content and groups duplicates<br/>&#8226; Keeps the most substantive version</div>
+      <div class="pc-tags"><span class="gd">No duplicates</span><span>Cross-source</span><span>Best kept</span></div>
+    </div>
+    <div class="pa va" style="grid-area:d1;">&#8595;</div>
+    <div class="pc" style="grid-area:a4;">
+      <div class="pc-head"><span class="pc-n c4">4</span><span class="pc-icon">&#x2702;&#xFE0F;</span><span class="pc-title">Summarize Each Story</span></div>
+      <div class="pc-body">&#8226; Each story receives its own briefing<br/>&#8226; Captures what happened and why it matters<br/>&#8226; Independently condensed per item</div>
+      <div class="pc-tags"><span class="vt">&#8804;10 bullets</span><span class="vt">&#8804;150 words</span><span>Per story</span></div>
+    </div>
+    <div class="pa ha" style="grid-area:r4;">&#8594;</div>
+    <div class="pc" style="grid-area:a5;">
+      <div class="pc-head"><span class="pc-n c5">5</span><span class="pc-icon">&#x1F3AF;</span><span class="pc-title">Assess Strategic Impact</span></div>
+      <div class="pc-body">&#8226; 5-hat Director framework applied<br/>&#8226; Sales, Strategist, Architect, Product, Project<br/>&#8226; Clear implication and action per story</div>
+      <div class="pc-tags"><span>Director Lens</span><span>5 hats</span><span class="ac">&#8804;150 words</span></div>
+    </div>
+    <div class="pa ha" style="grid-area:r5;">&#8594;</div>
+    <div class="pc" style="grid-area:a6;">
+      <div class="pc-head"><span class="pc-n c6">6</span><span class="pc-icon">&#x1F4CB;</span><span class="pc-title">Deliver Brief</span></div>
+      <div class="pc-body">&#8226; All stories in one structured brief<br/>&#8226; Clear separation between each item<br/>&#8226; Silent delivery when nothing is new</div>
+      <div class="pc-tags"><span>Zero noise</span><span>Cron-ready</span><span>One brief</span></div>
+    </div>
+  </div>
+  <div class="callout fade-in">
+    <span class="cl-icon">&#x1F4DD;</span>
+    <p>Key design decision: each story uses its own word budget so no single article is diluted by aggregation. Duplicate coverage across sources is collapsed to one authoritative version.</p>
+  </div>
+  <span class="slide-n"><span>02</span> / 04</span>
+</div>
+
+<!-- SLIDE 3: Frameworks (5-hat Director) -->
+<div class="slide" data-index="2">
+  <p class="action-title fade-in">Five operating hats translate raw news into actionable enterprise advisory for each story.</p>
+  <p class="sec-sub fade-in">The Director's Lens applies Sales, Strategist, Architect, Product, and Project perspectives independently per news item, each constrained to 150 words total</p>
+  <div class="fw-grid fade-in">
+    <div class="fc" style="grid-area:h1;">
+      <span class="fl l1">Enterprise Salesman</span>
+      <h4>Commercial Impact</h4>
+      <p class="fc-body">Evaluates ROI, C-suite pain points, deal sizing, and go-to-market opportunity. Answers: how do we sell a project based on this news?</p>
+      <div class="fe"><span class="ea">[Commercial Angle]</span> GPT-5 1M context <span class="eh">new enterprise product line, $50M+ TAM</span></div>
+    </div>
+    <div class="fc" style="grid-area:h2;">
+      <span class="fl l2">Enterprise Strategist</span>
+      <h4>Market Positioning</h4>
+      <p class="fc-body">Assesses macro-market positioning, business model evolution, and ecosystem alignment. Answers: how does this alter long-term growth trajectory?</p>
+      <div class="fe"><span class="ea">[Corporate Strategy]</span> EU AI regulation <span class="eh">compliance-first market entrants gain structural advantage</span></div>
+    </div>
+    <div class="fc" style="grid-area:h3;">
+      <span class="fl l3">Technical Architect</span>
+      <h4>Security &amp; Integration</h4>
+      <p class="fc-body">Maps integration feasibility with legacy ecosystems, cyber threat vectors, zero-trust posture, and data governance compliance risks.</p>
+      <div class="fe"><span class="ea">[Architecture]</span> Model cost drop 60% <span class="eh">accelerate cloud migration, reassess inference vendor lock-in</span></div>
+    </div>
+    <div class="fc" style="grid-area:h4;">
+      <span class="fl l4">Product Manager</span>
+      <h4>User Value &amp; Moat</h4>
+      <p class="fc-body">Defines the highest-value enterprise MVP and the long-term competitive moat. Answers: what features win the first deal, and what sustains defensibility?</p>
+      <div class="fe"><span class="ea">[Product Vision]</span> BTC institutional adoption <span class="eh">MVP: custody API layer. Moat: regulatory compliance infrastructure</span></div>
+    </div>
+    <div class="fc" style="grid-area:h5;">
+      <span class="fl l5">Project Manager</span>
+      <h4>Execution &amp; Risk</h4>
+      <p class="fc-body">Estimates real time-to-value, delivery complexity, resource allocation, change management, and immediate next steps.</p>
+      <div class="fe"><span class="ea">[Delivery Reality]</span> AI Act 7% penalty <span class="eh">start compliance audit Q2, 6-month runway before fines apply</span></div>
+    </div>
+  </div>
+  <div class="fw-note fade-in">
+    <span class="nb">Hard constraint</span>
+    <p>All 6 bullets combined per story must stay under 150 words. Ultra-dense: ~20-25 words per bullet.</p>
+  </div>
+  <span class="slide-n"><span>03</span> / 04</span>
+</div>
+
+<!-- SLIDE 4: Output -->
+<div class="slide" data-index="3">
+  <p class="action-title fade-in">Each unique story arrives as a self-contained brief with a 150-word summary and a 150-word strategic insight block.</p>
+  <p class="sec-sub fade-in">Stories from duplicate sources are merged. Summary and insight each have independent word budgets.</p>
+  <div class="out-scroll fade-in">
+    <div class="oblock">
+      <div class="ob-head">
+        <span class="ob-icon">&#x1F916;</span>
+        <span class="ob-title">OpenAI Launches GPT-5 with 1M Context Window</span>
+        <span class="ob-source">TechCrunch AI</span>
+      </div>
+      <div class="ob-body">
+        <div class="ob-col">
+          <div class="ob-label">Summary, 150 words max</div>
+          <div class="ob-bullets">
+            <span class="dot">&#8226;</span> OpenAI released GPT-5 with 1 million token context window, 10x larger than GPT-4<br/>
+            <span class="dot">&#8226;</span> New architecture reduces inference cost by 60% while improving reasoning accuracy<br/>
+            <span class="dot">&#8226;</span> Enterprise API pricing set at $15 per million input tokens<br/>
+            <span class="dot">&#8226;</span> Real-time document analysis and code generation across entire codebases<br/>
+            <span class="dot">&#8226;</span> Early access partners report 40% productivity gains in knowledge work
+          </div>
+        </div>
+        <div class="ob-col">
+          <div class="ob-label">Director Briefing, 150 words max</div>
+          <div class="ob-insight">
+            &#8226; <strong>Executive Synthesis:</strong> GPT-5 with 1M context fundamentally shifts enterprise AI cost curve<br/>
+            &#8226; <strong>Corporate Strategy (Strategist):</strong> First-mover advantage for firms that bet on long-context workflows creates structural gap<br/>
+            &#8226; <strong>Commercial Angle (Sales):</strong> Enterprise productivity pitch now credible at 40% measured gains; price TAM at $15/M tokens<br/>
+            &#8226; <strong>Architectural &amp; Security Blueprint (Tech):</strong> 1M context enables single-prompt full-codebase—rethink data pipeline and RAG architecture<br/>
+            &#8226; <strong>Product &amp; Experience Vision (Product):</strong> MVP: legal contract analysis. Moat: proprietary context-windowing fine-tuned on domain data<br/>
+            &#8226; <strong>Delivery Reality (Project):</strong> 60% cost reduction justifies immediate POC; pilot by Q3, production by Q1 next year
+          </div>
+        </div>
+      </div>
+      <div class="ob-const"><span>10 bullets max</span><span>150w summary</span><span>150w insight</span></div>
+    </div>
+    <div class="oblock">
+      <div class="ob-head">
+        <span class="ob-icon">&#x1F3E6;</span>
+        <span class="ob-title">Bitcoin Crosses $120K for the First Time</span>
+        <span class="ob-source">CoinDesk, Blockworks</span>
+      </div>
+      <div class="ob-body">
+        <div class="ob-col">
+          <div class="ob-label">Summary, 150 words max</div>
+          <div class="ob-bullets">
+            <span class="dot">&#8226;</span> Bitcoin surpassed $120,000 driven by institutional ETF inflows<br/>
+            <span class="dot">&#8226;</span> Spot Bitcoin ETFs recorded $4.2B in weekly net inflows, a new record<br/>
+            <span class="dot">&#8226;</span> Multiple sovereign wealth funds disclosed BTC allocations this quarter<br/>
+            <span class="dot">&#8226;</span> Options market pricing suggests continued upside with low volatility regime<br/>
+            <span class="dot">&#8226;</span> Regulatory clarity in US and EU cited as key confidence driver
+          </div>
+        </div>
+        <div class="ob-col">
+          <div class="ob-label">Director Briefing, 150 words max</div>
+          <div class="ob-insight">
+            &#8226; <strong>Executive Synthesis:</strong> BTC crossing $120K signals inflection from speculation to institutional reserve asset<br/>
+            &#8226; <strong>Corporate Strategy (Strategist):</strong> Sovereign wealth BTC allocations accelerate—reassess treasury strategy before peer pressure locks in later at higher basis<br/>
+            &#8226; <strong>Commercial Angle (Sales):</strong> $4.2B weekly ETF inflows open custody and advisory revenue pool; pitch to HNW family offices<br/>
+            &#8226; <strong>Architectural &amp; Security Blueprint (Tech):</strong> Custody integration and on-chain settlement rails needed; evaluate MPC vs. hardware security module<br/>
+            &#8226; <strong>Product &amp; Experience Vision (Product):</strong> MVP: white-label crypto custody API. Moat: multi-jurisdiction regulatory wrappers<br/>
+            &#8226; <strong>Delivery Reality (Project):</strong> Custody integration 6-month build; regulatory paperwork concurrent. Pilot with one treasury allocation first
+          </div>
+        </div>
+      </div>
+      <div class="ob-const"><span>10 bullets max</span><span>150w summary</span><span>150w insight</span></div>
+    </div>
+    <div class="oblock">
+      <div class="ob-head">
+        <span class="ob-icon">&#x2696;&#xFE0F;</span>
+        <span class="ob-title">EU Passes Landmark AI Regulation Framework</span>
+        <span class="ob-source">MIT Tech Review, VentureBeat</span>
+      </div>
+      <div class="ob-body">
+        <div class="ob-col">
+          <div class="ob-label">Summary, 150 words max</div>
+          <div class="ob-bullets">
+            <span class="dot">&#8226;</span> EU Parliament approved comprehensive AI Act with tiered compliance requirements<br/>
+            <span class="dot">&#8226;</span> High-risk AI systems face mandatory third-party audits and explainability standards<br/>
+            <span class="dot">&#8226;</span> Penalties for non-compliance reach 7% of global annual revenue<br/>
+            <span class="dot">&#8226;</span> Implementation phased over 24 months with first rules effective in 6 months<br/>
+            <span class="dot">&#8226;</span> Industry groups warn of competitive disadvantage versus US and China markets
+          </div>
+        </div>
+        <div class="ob-col">
+          <div class="ob-label">Director Briefing, 150 words max</div>
+          <div class="ob-insight">
+            &#8226; <strong>Executive Synthesis:</strong> EU AI Act 7% revenue penalty creates binding compliance timeline for any firm deploying AI in EU markets<br/>
+            &#8226; <strong>Corporate Strategy (Strategist):</strong> Regulation-as-moat: compliant incumbents freeze out non-compliant new entrants. Build compliance infrastructure now<br/>
+            &#8226; <strong>Commercial Angle (Sales):</strong> Sell compliance-as-a-platform to mid-market EU firms facing 7% revenue risk; pricing at 0.5% of covered revenue<br/>
+            &#8226; <strong>Architectural &amp; Security Blueprint (Tech):</strong> Mandatory third-party audits require explainability layer in model stack—allocate ML engineering to interpretability tooling<br/>
+            &#8226; <strong>Product &amp; Experience Vision (Product):</strong> MVP: automated compliance dashboard mapping AI models to EU risk tiers. Moat: real-time regulatory engine<br/>
+            &#8226; <strong>Delivery Reality (Project):</strong> First rules in 6 months; audit readiness by month 5. Cross-functional task force: legal, product, infra
+          </div>
+        </div>
+      </div>
+      <div class="ob-const"><span>10 bullets max</span><span>150w summary</span><span>150w insight</span></div>
+    </div>
+  </div>
+  <span class="slide-n"><span>04</span> / 04</span>
+</div>
+
+</div>
+<div class="nav-dots" id="navDots">
+  <button class="nav-dot active" data-index="0"></button>
+  <button class="nav-dot" data-index="1"></button>
+  <button class="nav-dot" data-index="2"></button>
+  <button class="nav-dot" data-index="3"></button>
+</div>
+</div>
+</div>
+<script>
+(function(){
+  var w=document.getElementById('slidesWrapper');
+  var d=document.querySelectorAll('.nav-dot');
+  var s=w.querySelectorAll('.slide');
+  var t=s.length;
+  var c=parseInt(localStorage.getItem('vanguardInsightsSlide')||'0');
+  if(isNaN(c)||c<0||c>=t)c=0;
+  function g(i){if(i<0||i>=t)return;c=i;w.style.transform='translateX(-'+i*100+'%)';d.forEach(function(x,j){x.classList.toggle('active',j===i);});s.forEach(function(x,j){x.classList.toggle('active',j===i);});try{localStorage.setItem('vanguardInsightsSlide',String(i));}catch(e){}
+  }
+  d.forEach(function(x){x.addEventListener('click',function(){g(parseInt(x.dataset.index));});});
+  document.addEventListener('keydown',function(e){if(e.key==='ArrowRight'||e.key==='ArrowDown'||e.key===' '){e.preventDefault();g(c+1);}if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();g(c-1);}if(e.key==='Home'){e.preventDefault();g(0);}if(e.key==='End'){e.preventDefault();g(t-1);}});
+  var tx=0,ty=0;
+  document.addEventListener('touchstart',function(e){tx=e.changedTouches[0].screenX;ty=e.changedTouches[0].screenY;},{passive:true});
+  document.addEventListener('touchend',function(e){var dx=e.changedTouches[0].screenX-tx;var dy=e.changedTouches[0].screenY-ty;if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>50){if(dx<0){g(c+1);}else{g(c-1);}}},{passive:true});
+  g(c);
+})();
+</script>
+</body>
+</html>

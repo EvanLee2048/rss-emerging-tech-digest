@@ -1,0 +1,5 @@
+# Core — no external dependencies beyond Python 3.10+ stdlib.
+# All HTTP calls (RSS, Jina, LLM) use urllib from stdlib.
+# Testing uses pytest — no other deps needed.
+
+pytest>=7.0
