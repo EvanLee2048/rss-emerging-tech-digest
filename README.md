@@ -4,6 +4,7 @@ End-to-end pipeline that polls 10 RSS feeds → fetches full article content (Ji
 
 **Sources:** SemiAnalysis, Import AI, Latent Space, VentureBeat, Gradient Flow, InfoQ, Dark Reading, Payments Dive, Ledger Insights, HKMA Press Releases
 
+Presentation Website: https://evanlee2048.github.io/rss-emerging-tech-digest/
 ---
 
 ## Requirements
