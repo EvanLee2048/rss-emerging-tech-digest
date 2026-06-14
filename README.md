@@ -208,6 +208,7 @@ All settings can be configured via environment variables or the `--config` YAML 
 | `--state-dir PATH` | `~/.digest-state/` | Watermark state directory |
 | `--timeout SEC` | `120` | HTTP/SMTP timeout for RSS/Jina/LLM requests |
 | `--email-to EMAIL` | — | Email recipient (defaults to SMTP_TARGET env var if omitted) |
+| `--max-days N` | `2` | Only process articles published within N days. 0 = no limit |
 
 ---
 

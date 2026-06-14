@@ -96,6 +96,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="",
         help="Email recipient (defaults to SMTP_TARGET env var if omitted). Requires SMTP_* env vars.",
     )
+    p.add_argument(
+        "--max-days",
+        type=int,
+        default=2,
+        help="Only keep articles published within this many days (default: 2). 0 = no limit.",
+    )
     return p.parse_args(argv)
 
 
@@ -165,6 +171,25 @@ def main(argv: list[str] | None = None) -> int:
     categories_with_new = list({a.category for a in all_new_articles})
     log(f"Step 1 complete — {len(all_new_articles)} new articles from "
         f"{feeds_with_new}/{feeds_scanned} feeds")
+
+    # ── Step 1b: Filter by recency (--max-days) ────────────────────
+    if args.max_days > 0:
+        from datetime import datetime as _dt, timedelta
+        cutoff = _dt.now().date() - timedelta(days=args.max_days)
+        before = len(all_new_articles)
+        all_new_articles = [
+            a for a in all_new_articles
+            if not a.date or _dt.strptime(a.date, "%Y-%m-%d").date() >= cutoff
+        ]
+        removed = before - len(all_new_articles)
+        if removed:
+            log(f"  → {removed} articles older than {args.max_days} days filtered out")
+        else:
+            log(f"  All {before} articles within {args.max_days}-day window")
+
+        if not all_new_articles:
+            log("No articles within the date window — exiting")
+            return 0
 
     # ── Step 2: Fetch full article content (Jina) ───────────────────
     if not args.dry_run:
