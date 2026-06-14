@@ -319,3 +319,11 @@ For best results, use a model with ≥8K context window and ≥512 token output.
 
 **Problem:** `ModuleNotFoundError: No module named 'src'`
 → Run from the project root directory (`rss-emerging-tech-digest/`).
+
+# Comment from the Creator
+This project wasn't instructed to follow technical best practice.
+That why this project has hardcoded URL, and not using LangChain.
+I personally takes this project to experiment if "technical best practice" is still material when we are in the age of vibe coding.
+
+deepseek-v4-flash was used 98% of the time.
+It proves that with clear instruction, even "not the smartest" model can do the job.
