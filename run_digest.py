@@ -102,6 +102,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=2,
         help="Only keep articles published within this many days (default: 2). 0 = no limit.",
     )
+    p.add_argument(
+        "--no-watermark",
+        action="store_true",
+        help="Skip URL-level dedup watermark. Useful with --max-days for cron jobs. "
+             "Each run processes articles independently, ignoring previous runs.",
+    )
     return p.parse_args(argv)
 
 
@@ -173,13 +179,17 @@ def main(argv: list[str] | None = None) -> int:
                     f"{len(fetched)} remain")
 
         new_articles = wm.filter_new_articles(fetched)
+        if args.no_watermark:
+            # Skip watermark: all articles that passed date filter are "new"
+            new_articles = fetched
         if new_articles:
             feeds_with_new += 1
             dated = sum(1 for a in new_articles if a.date)
             log(f"    → {len(new_articles)} new (after URL dedup), "
                 f"{dated} with dates, {len(new_articles)-dated} without)")
         all_new_articles.extend(new_articles)
-        wm.save(feed_cfg.watcher_name)  # Persist watermark after each feed
+        if not args.no_watermark:
+            wm.save(feed_cfg.watcher_name)  # Persist watermark after each feed
 
     if not all_new_articles:
         log("No new articles found — exiting silently")
