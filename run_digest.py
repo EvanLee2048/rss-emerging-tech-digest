@@ -146,16 +146,32 @@ def main(argv: list[str] | None = None) -> int:
         llm = None  # type: ignore[assignment]
         log("DRY RUN: LLM and Jina calls will be skipped")
 
-    # ── Step 1: Fetch feeds + URL-level dedup ───────────────────────
-    log("Step 1/7: Fetching RSS feeds & URL dedup...")
+    # ── Step 1: Fetch feeds + date filter + URL-level dedup ─────────
+    log("Step 1/7: Fetching RSS feeds & date filter & URL dedup...")
     all_new_articles: list[Article] = []
     feeds_with_new = 0
+    from datetime import datetime as _dt, timedelta
+    cutoff = _dt.now().date() - timedelta(days=args.max_days) if args.max_days > 0 else None
+
     for feed_cfg in feeds:
         fetched = fetch_feed(feed_cfg, timeout=args.timeout)
         if fetched is None:
             log(f"  ⚠ {feed_cfg.watcher_name}: fetch failed (skipped)")
             continue
         log(f"  ✓ {feed_cfg.watcher_name}: {len(fetched)} items fetched")
+
+        # Apply date filter BEFORE watermark (only keep recent articles)
+        if cutoff is not None:
+            before = len(fetched)
+            fetched = [
+                a for a in fetched
+                if not a.date or _dt.strptime(a.date, "%Y-%m-%d").date() >= cutoff
+            ]
+            skipped = before - len(fetched)
+            if skipped:
+                log(f"    → {skipped} older than {args.max_days} days filtered out, "
+                    f"{len(fetched)} remain")
+
         new_articles = wm.filter_new_articles(fetched)
         if new_articles:
             feeds_with_new += 1
@@ -171,43 +187,17 @@ def main(argv: list[str] | None = None) -> int:
 
     feeds_scanned = len(feeds)
     categories_with_new = list({a.category for a in all_new_articles})
-    log(f"Step 1 complete — {len(all_new_articles)} new articles from "
-        f"{feeds_with_new}/{feeds_scanned} feeds")
-
-    # ── Step 1b: Filter by recency (--max-days) ────────────────────
-    if args.max_days > 0:
-        from datetime import datetime as _dt, timedelta
-        cutoff = _dt.now().date() - timedelta(days=args.max_days)
-
-        # Show date range for diagnostics
-        dated = [a for a in all_new_articles if a.date]
-        undated = [a for a in all_new_articles if not a.date]
-        if dated:
-            dates = sorted(set(a.date for a in dated))
-            log(f"  Date range in fetched articles: {dates[0]} to {dates[-1]}"
-                f" ({len(dated)} with dates, {len(undated)} without)")
-        elif undated:
-            log(f"  No dates found in any article ({len(undated)} undated)")
-        else:
-            log("  No articles at all — skipping date filter")
-
-        before = len(all_new_articles)
-        all_new_articles = [
-            a for a in all_new_articles
-            if not a.date or _dt.strptime(a.date, "%Y-%m-%d").date() >= cutoff
-        ]
-        removed = before - len(all_new_articles)
-        if removed:
-            log(f"  → {removed} articles older than {args.max_days} days filtered out")
-            if dated and removed == before:
-                log(f"  ⚠ All articles have dates older than {args.max_days} days.")
-                log(f"  ⚠ Try --max-days 30 or higher to capture them, or check if feeds are stale.")
-        else:
-            log(f"  All {before} articles within {args.max_days}-day window")
-
-        if not all_new_articles:
-            log("No articles within the date window — exiting")
-            return 0
+    # Show overall date range of what passed both filters
+    dated = [a for a in all_new_articles if a.date]
+    undated = len(all_new_articles) - len(dated)
+    if dated:
+        dates = sorted(set(a.date for a in dated))
+        log(f"Step 1 complete — {len(all_new_articles)} articles "
+            f"(dates {dates[0]} to {dates[-1]}{', ' + str(undated) + ' undated' if undated else ''}) "
+            f"from {feeds_with_new}/{feeds_scanned} feeds")
+    else:
+        log(f"Step 1 complete — {len(all_new_articles)} articles "
+            f"(all undated) from {feeds_with_new}/{feeds_scanned} feeds")
 
     # ── Step 2: Fetch full article content (Jina) ───────────────────
     if not args.dry_run:
