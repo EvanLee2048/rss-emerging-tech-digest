@@ -88,6 +88,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=2,
         help="Only keep articles published within this many days (default: 2). 0 = no limit.",
     )
+    p.add_argument(
+        "--jina-proxy",
+        action="store_true",
+        help="Skip direct fetch, use Jina AI Reader proxy directly. "
+             "Useful on EC2/cloud where sites commonly block datacenter IPs.",
+    )
     return p.parse_args(argv)
 
 
@@ -180,11 +186,12 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── Step 2: Fetch full article content (Jina) ───────────────────
     if not args.dry_run:
-        log(f"Step 2/7: Fetching full article content via Jina "
+        log(f"Step 2/7: Fetching full article content"
+            f"{' via Jina proxy' if args.jina_proxy else ''} "
             f"({len(all_new_articles)} articles)...")
         for i, article in enumerate(all_new_articles):
             log(f"  Jina {i+1}/{len(all_new_articles)}: \"{article.title[:60]}...\"")
-            enrich_article(article, timeout=args.timeout)
+            enrich_article(article, timeout=args.timeout, jina_only=args.jina_proxy)
             if i > 0 and i % 5 == 0:
                 log("  Rate-limit pause (2s)...")
                 time.sleep(2)
@@ -269,7 +276,12 @@ def main(argv: list[str] | None = None) -> int:
         log(f"Delivering via email to {email_to}...")
         from src.emailer import email_digest
         try:
-            email_digest(digest, email_to)
+            email_digest(
+                digest, email_to,
+                articles=all_new_articles,
+                feeds_scanned=feeds_scanned,
+                categories_with_new=categories_with_new,
+            )
             log(f"Email sent to {email_to}")
         except Exception as exc:
             log(f"WARNING: Failed to email digest: {exc}")

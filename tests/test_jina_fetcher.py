@@ -1,9 +1,10 @@
 """Tests for src/jina_fetcher.py."""
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError
 
 import pytest
 
-from src.jina_fetcher import fetch_full_text, enrich_article
+from src.jina_fetcher import enrich_article, fetch_full_text
 from src.types import Article
 
 
@@ -19,38 +20,80 @@ def _article(url: str = "https://example.com/article") -> Article:
     )
 
 
+LONG_TEXT = (
+    "Full article text with sufficient length to pass the 200-char threshold. "
+    "This article covers multiple key developments in the AI industry including "
+    "large language models, enterprise AI adoption, and regulatory frameworks "
+    "being developed across different jurisdictions. This content is long enough."
+)
+
+
 class TestFetchFullText:
-    def test_returns_full_text_on_success(self):
+    # ── Direct fetch succeeds (Tier 1) ─────────────────────────────
+
+    def test_direct_fetch_succeeds(self):
+        """Direct fetch returns content → used immediately, no Jina call."""
         article = _article()
         with patch("src.jina_fetcher.urlopen") as mock:
             mock_resp = mock.return_value.__enter__.return_value
-            mock_resp.read.return_value = b"Full article text from Jina with details about AI trends and market movements. The article covers multiple key developments in the AI industry including large language models, enterprise AI adoption, and regulatory frameworks being developed across different jurisdictions. This content exceeds 100 characters easily."
+            mock_resp.read.return_value = LONG_TEXT.encode("utf-8")
+
             result = fetch_full_text(article)
+
             assert "Full article text" in result
             assert "RSS summary" not in result
+            # urlopen called exactly once (first UA succeeds, no retry)
+            assert mock.call_count == 1
 
-    def test_fallback_on_jina_warning(self):
-        """Jina returns 'Warning: ...' for blocked pages."""
+    # ── Direct fails, Jina succeeds (Tier 1→2) ─────────────────────
+
+    def test_direct_fails_jina_succeeds(self):
+        """Direct fetch blocks (403) → Jina proxy used."""
         article = _article()
+
+        # Jina success context manager + response
+        jina_resp = MagicMock()
+        jina_resp.read.return_value = b"Full article text from Jina proxy. " * 20
+        jina_ctx = MagicMock()
+        jina_ctx.__enter__.return_value = jina_resp
+
         with patch("src.jina_fetcher.urlopen") as mock:
-            mock_resp = mock.return_value.__enter__.return_value
-            mock_resp.read.return_value = b"Warning: Target URL returned error 403"
+            mock.side_effect = [
+                HTTPError("", 403, "Forbidden", {}, None),
+                HTTPError("", 403, "Forbidden", {}, None),
+                jina_ctx,
+            ]
             result = fetch_full_text(article)
-            assert result == "RSS summary fallback"
 
-    def test_fallback_on_short_response(self):
-        """Very short response (<100 chars) treated as error."""
+        assert "Full article text from Jina proxy" in result
+        assert "RSS summary" not in result
+
+    def test_direct_short_jina_succeeds(self):
+        """Direct returns short/blocked content → Jina fallback."""
         article = _article()
+        direct_ctx = MagicMock()
+        direct_resp = MagicMock()
+        direct_resp.read.return_value = b"short"
+        direct_ctx.__enter__.return_value = direct_resp
+
+        jina_ctx = MagicMock()
+        jina_resp = MagicMock()
+        jina_resp.read.return_value = b"Full article text from Jina proxy. " * 20
+        jina_ctx.__enter__.return_value = jina_resp
+
         with patch("src.jina_fetcher.urlopen") as mock:
-            mock_resp = mock.return_value.__enter__.return_value
-            mock_resp.read.return_value = b"short"
+            mock.side_effect = [direct_ctx, direct_ctx, jina_ctx]
             result = fetch_full_text(article)
-            assert result == "RSS summary fallback"
 
-    def test_fallback_on_network_error(self):
+        assert "Full article text from Jina proxy" in result
+
+    # ── Both fail → RSS summary (Tier 3) ───────────────────────────
+
+    def test_both_fail_returns_rss_summary(self):
+        """Direct and Jina both fail → RSS summary fallback."""
         article = _article()
         with patch("src.jina_fetcher.urlopen") as mock:
-            mock.side_effect = OSError("Timeout")
+            mock.side_effect = OSError("Network error")
             result = fetch_full_text(article)
             assert result == "RSS summary fallback"
 
@@ -59,11 +102,13 @@ class TestFetchFullText:
         result = fetch_full_text(article)
         assert result == "RSS summary fallback"
 
+    # ── enrich_article ──────────────────────────────────────────────
+
     def test_article_enriched(self):
         article = _article()
         with patch("src.jina_fetcher.urlopen") as mock:
             mock_resp = mock.return_value.__enter__.return_value
-            mock_resp.read.return_value = b"Full enriched text content about the latest AI industry developments including new model releases and funding rounds. This article provides comprehensive coverage of the technology landscape that continues to evolve rapidly across multiple sectors."
+            mock_resp.read.return_value = LONG_TEXT.encode("utf-8")
             enriched = enrich_article(article)
-            assert enriched.full_text.startswith("Full enriched text content")
+            assert enriched.full_text.startswith("Full article text")
             assert enriched.title == "Test"
