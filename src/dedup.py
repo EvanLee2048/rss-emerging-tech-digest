@@ -6,6 +6,7 @@ news event, keeping only the most authoritative/substantive version.
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 from src.llm_client import LLMClient
@@ -57,7 +58,7 @@ def semantic_dedup(
             "feed_key": a.feed_key,
             "feed_label": a.feed_label,
             "category": a.category,
-            "url_hash": a.url_hash,
+            "url_hash": a.url_hash or hashlib.sha256(a.url.encode()).hexdigest()[:16],
         }
         for a in articles
     ]
@@ -85,7 +86,10 @@ def semantic_dedup(
         return articles
 
     # Map back to Article objects by url_hash
-    hash_map = {a.url_hash: a for a in articles}
+    hash_map: dict[str, Article] = {}
+    for a in articles:
+        h = a.url_hash or hashlib.sha256(a.url.encode()).hexdigest()[:16]
+        hash_map[h] = a
     deduped: list[Article] = []
     for kept in raw_kept:
         url_hash = kept.get("url_hash", "")

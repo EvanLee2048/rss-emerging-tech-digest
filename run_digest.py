@@ -11,17 +11,13 @@ Usage:
     # Dry-run (skip LLM calls, use RSS summaries only)
     python run_digest.py --dry-run
 
-    # Custom config
-    python run_digest.py --config /path/to/config.yaml
-
     # Save digest to file
     python run_digest.py --output /path/to/digest.txt
 
 Environment variables:
     LLM_API_KEY     Required. OpenAI-compatible API key.
-    LLM_BASE_URL    Optional. API base URL (default: https://api.openai.com/v1)
-    LLM_MODEL       Optional. Model name (default: gpt-4o-mini)
-    DIGEST_STATE_DIR Optional. Watermark state directory (default: ~/.digest-state/)
+    LLM_BASE_URL    Optional. API base URL (default: https://api.deepseek.com/v1)
+    LLM_MODEL       Optional. Model name (default: deepseek-v4-flash)
 """
 
 from __future__ import annotations
@@ -31,11 +27,10 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from src.feeds import fetch_feed, get_feeds
-from src.watermark import WatermarkStore
 from src.jina_fetcher import enrich_article
 from src.llm_client import LLMClient
 from src.dedup import semantic_dedup
@@ -74,15 +69,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Path to save the digest text (printed to stdout if omitted)",
     )
     p.add_argument(
-        "--state-dir",
-        type=str,
-        default=os.environ.get(
-            "DIGEST_STATE_DIR",
-            str(Path.home() / ".digest-state"),
-        ),
-        help="Watermark state directory (default: ~/.digest-state/)",
-    )
-    p.add_argument(
         "--timeout",
         type=int,
         default=120,
@@ -101,12 +87,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=2,
         help="Only keep articles published within this many days (default: 2). 0 = no limit.",
-    )
-    p.add_argument(
-        "--no-watermark",
-        action="store_true",
-        help="Skip URL-level dedup watermark. Useful with --max-days for cron jobs. "
-             "Each run processes articles independently, ignoring previous runs.",
     )
     return p.parse_args(argv)
 
@@ -137,9 +117,6 @@ def main(argv: list[str] | None = None) -> int:
     elif not email_to:
         email_to = os.environ.get("SMTP_TARGET", "")
 
-    wm = WatermarkStore(args.state_dir)
-    wm.load()
-
     if not args.dry_run:
         try:
             llm = LLMClient(timeout=args.timeout)
@@ -152,52 +129,44 @@ def main(argv: list[str] | None = None) -> int:
         llm = None  # type: ignore[assignment]
         log("DRY RUN: LLM and Jina calls will be skipped")
 
-    # ── Step 1: Fetch feeds + date filter + URL-level dedup ─────────
-    log("Step 1/7: Fetching RSS feeds & date filter & URL dedup...")
+    # ── Step 1: Fetch feeds + date filter ───────────────────────────
+    log("Step 1/7: Fetching RSS feeds & date filter...")
     all_new_articles: list[Article] = []
     feeds_with_new = 0
-    from datetime import datetime as _dt, timedelta
-    cutoff = _dt.now().date() - timedelta(days=args.max_days) if args.max_days > 0 else None
+    cutoff = datetime.now().date() - timedelta(days=args.max_days) if args.max_days > 0 else None
 
     for feed_cfg in feeds:
         fetched = fetch_feed(feed_cfg, timeout=args.timeout)
         if fetched is None:
-            log(f"  ⚠ {feed_cfg.watcher_name}: fetch failed (skipped)")
+            log(f"  \u26a0 {feed_cfg.watcher_name}: fetch failed (skipped)")
             continue
-        log(f"  ✓ {feed_cfg.watcher_name}: {len(fetched)} items fetched")
+        log(f"  \u2713 {feed_cfg.watcher_name}: {len(fetched)} items fetched")
 
-        # Apply date filter BEFORE watermark (only keep recent articles)
+        # Apply date filter (only keep recent articles)
         if cutoff is not None:
             before = len(fetched)
             fetched = [
                 a for a in fetched
-                if not a.date or _dt.strptime(a.date, "%Y-%m-%d").date() >= cutoff
+                if not a.date or datetime.strptime(a.date, "%Y-%m-%d").date() >= cutoff
             ]
             skipped = before - len(fetched)
             if skipped:
-                log(f"    → {skipped} older than {args.max_days} days filtered out, "
+                log(f"    \u2192 {skipped} older than {args.max_days} days filtered out, "
                     f"{len(fetched)} remain")
 
-        new_articles = wm.filter_new_articles(fetched)
-        if args.no_watermark:
-            # Skip watermark: all articles that passed date filter are "new"
-            new_articles = fetched
-        if new_articles:
+        if fetched:
             feeds_with_new += 1
-            dated = sum(1 for a in new_articles if a.date)
-            log(f"    → {len(new_articles)} new (after URL dedup), "
-                f"{dated} with dates, {len(new_articles)-dated} without)")
-        all_new_articles.extend(new_articles)
-        if not args.no_watermark:
-            wm.save(feed_cfg.watcher_name)  # Persist watermark after each feed
+            dated = sum(1 for a in fetched if a.date)
+            log(f"    \u2192 {len(fetched)} articles to process, "
+                f"{dated} with dates, {len(fetched)-dated} without")
+        all_new_articles.extend(fetched)
 
     if not all_new_articles:
-        log("No new articles found — exiting silently")
-        return 0  # Silent exit — nothing new
+        log("No articles found within date window — exiting")
+        return 0
 
     feeds_scanned = len(feeds)
     categories_with_new = list({a.category for a in all_new_articles})
-    # Show overall date range of what passed both filters
     dated = [a for a in all_new_articles if a.date]
     undated = len(all_new_articles) - len(dated)
     if dated:
@@ -216,7 +185,6 @@ def main(argv: list[str] | None = None) -> int:
         for i, article in enumerate(all_new_articles):
             log(f"  Jina {i+1}/{len(all_new_articles)}: \"{article.title[:60]}...\"")
             enrich_article(article, timeout=args.timeout)
-            # Rate-limit: max 5 concurrent Jina requests
             if i > 0 and i % 5 == 0:
                 log("  Rate-limit pause (2s)...")
                 time.sleep(2)
@@ -233,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
         log(f"Step 3 complete — {removed} duplicates removed, "
             f"{len(all_new_articles)} unique articles remain")
     else:
-        log("Step 3/7: Skipped (dry run or ≤1 article)")
+        log("Step 3/7: Skipped (dry run or \u22641 article)")
 
     if not all_new_articles:
         log("All articles filtered out — exiting")
@@ -247,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
         all_new_articles = filter_all(all_new_articles, llm)
         filtered = before - len(all_new_articles)
         if filtered:
-            log(f"  → {filtered} HKMA items filtered out")
+            log(f"  \u2192 {filtered} HKMA items filtered out")
         log(f"Step 4 complete — {len(all_new_articles)} articles remain")
     else:
         log("Step 4/7: Skipped (dry run)")
