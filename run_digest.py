@@ -30,6 +30,8 @@ import argparse
 import logging
 import os
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 from src.feeds import fetch_feed, get_feeds
@@ -83,8 +85,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--timeout",
         type=int,
-        default=30,
-        help="HTTP timeout in seconds (default: 30)",
+        default=120,
+        help="HTTP/SMTP timeout in seconds (default: 120)",
     )
     p.add_argument(
         "--email-to",
@@ -97,14 +99,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def log(msg: str) -> None:
+    """Print a timestamped progress message to stderr."""
+    ts = datetime.now().strftime("%H:%M:%S")
+    print(f"[{ts}] {msg}", file=sys.stderr, flush=True)
+
+
 def main(argv: list[str] | None = None) -> int:
+    t_start = time.time()
     args = parse_args(argv)
 
     # ── Step 0: Initialise ──────────────────────────────────────────
     feeds = get_feeds(args.category)
     if not feeds:
-        print(f"No feeds found for category: {args.category}", file=sys.stderr)
+        log(f"ERROR: No feeds found for category '{args.category}'")
         return 1
+
+    log(f"Pipeline started — {len(feeds)} feeds, category={args.category}"
+        f"{' (DRY RUN)' if args.dry_run else ''}")
 
     # Resolve email target: CLI flag takes priority, fallback to env var
     email_to = args.email_to
@@ -119,94 +131,140 @@ def main(argv: list[str] | None = None) -> int:
     if not args.dry_run:
         try:
             llm = LLMClient(timeout=args.timeout)
+            log(f"LLM client ready — model={llm.model}, endpoint={llm.base_url}")
         except ValueError as e:
-            print(f"ERROR: {e}", file=sys.stderr)
-            print(
-                "Set LLM_API_KEY environment variable, or use --dry-run to skip LLM.",
-                file=sys.stderr,
-            )
+            log(f"ERROR: {e}")
+            log("Set LLM_API_KEY environment variable, or use --dry-run to skip LLM.")
             return 1
     else:
         llm = None  # type: ignore[assignment]
+        log("DRY RUN: LLM and Jina calls will be skipped")
 
     # ── Step 1: Fetch feeds + URL-level dedup ───────────────────────
+    log("Step 1/7: Fetching RSS feeds & URL dedup...")
     all_new_articles: list[Article] = []
+    feeds_with_new = 0
     for feed_cfg in feeds:
         fetched = fetch_feed(feed_cfg, timeout=args.timeout)
         if fetched is None:
+            log(f"  ⚠ {feed_cfg.watcher_name}: fetch failed (skipped)")
             continue
+        log(f"  ✓ {feed_cfg.watcher_name}: {len(fetched)} items fetched")
         new_articles = wm.filter_new_articles(fetched)
+        if new_articles:
+            feeds_with_new += 1
+            log(f"    → {len(new_articles)} new (after URL dedup)")
         all_new_articles.extend(new_articles)
         wm.save(feed_cfg.watcher_name)  # Persist watermark after each feed
 
     if not all_new_articles:
+        log("No new articles found — exiting silently")
         return 0  # Silent exit — nothing new
 
     feeds_scanned = len(feeds)
-    categories_with_new = list(
-        {a.category for a in all_new_articles}
-    )
+    categories_with_new = list({a.category for a in all_new_articles})
+    log(f"Step 1 complete — {len(all_new_articles)} new articles from "
+        f"{feeds_with_new}/{feeds_scanned} feeds")
 
     # ── Step 2: Fetch full article content (Jina) ───────────────────
     if not args.dry_run:
+        log(f"Step 2/7: Fetching full article content via Jina "
+            f"({len(all_new_articles)} articles)...")
         for i, article in enumerate(all_new_articles):
+            log(f"  Jina {i+1}/{len(all_new_articles)}: \"{article.title[:60]}...\"")
             enrich_article(article, timeout=args.timeout)
             # Rate-limit: max 5 concurrent Jina requests
             if i > 0 and i % 5 == 0:
-                import time as _time
-                _time.sleep(2)
+                log("  Rate-limit pause (2s)...")
+                time.sleep(2)
+        log("Step 2 complete — full article text fetched")
+    else:
+        log("Step 2/7: Skipped (dry run)")
 
     # ── Step 3: Semantic dedup (LLM) ────────────────────────────────
     if llm and not args.dry_run and len(all_new_articles) > 1:
+        log(f"Step 3/7: Semantic dedup across feeds ({len(all_new_articles)} articles)...")
+        before = len(all_new_articles)
         all_new_articles = semantic_dedup(all_new_articles, llm)
+        removed = before - len(all_new_articles)
+        log(f"Step 3 complete — {removed} duplicates removed, "
+            f"{len(all_new_articles)} unique articles remain")
+    else:
+        log("Step 3/7: Skipped (dry run or ≤1 article)")
 
     if not all_new_articles:
+        log("All articles filtered out — exiting")
         return 0
 
     # ── Step 4: HKMA relevance filter ───────────────────────────────
     if llm and not args.dry_run:
+        hkma_count = sum(1 for a in all_new_articles if a.feed_key == "hkma")
+        log(f"Step 4/7: HKMA relevance filter ({hkma_count} HKMA items)...")
+        before = len(all_new_articles)
         all_new_articles = filter_all(all_new_articles, llm)
+        filtered = before - len(all_new_articles)
+        if filtered:
+            log(f"  → {filtered} HKMA items filtered out")
+        log(f"Step 4 complete — {len(all_new_articles)} articles remain")
+    else:
+        log("Step 4/7: Skipped (dry run)")
 
     if not all_new_articles:
+        log("All articles filtered out — exiting")
         return 0
 
     # ── Step 5: Summarize per article ────────────────────────────────
     if llm and not args.dry_run:
-        for article in all_new_articles:
+        log(f"Step 5/7: Summarizing {len(all_new_articles)} articles...")
+        for i, article in enumerate(all_new_articles):
+            log(f"  Summarize {i+1}/{len(all_new_articles)}: \"{article.title[:60]}...\"")
             article.bullets = summarize_article(article, llm)
+        log("Step 5 complete — all articles summarized")
+    else:
+        log("Step 5/7: Skipped (dry run)")
 
     # ── Step 6: Director Briefing per article ───────────────────────
     if llm and not args.dry_run:
-        for article in all_new_articles:
+        log(f"Step 6/7: Director Briefing for {len(all_new_articles)} articles...")
+        for i, article in enumerate(all_new_articles):
+            log(f"  Briefing {i+1}/{len(all_new_articles)}: \"{article.title[:60]}...\"")
             article.director_briefing = generate_briefing(article, llm)
+        log("Step 6 complete — all briefings generated")
+    else:
+        log("Step 6/7: Skipped (dry run)")
 
     # ── Step 7: Assemble digest ─────────────────────────────────────
+    log("Step 7/7: Assembling digest...")
     digest = assemble_digest(
         all_new_articles,
         feeds_scanned=feeds_scanned,
         categories_with_new=categories_with_new,
     )
 
+    elapsed = time.time() - t_start
+    log(f"Digest assembled — {len(all_new_articles)} articles, "
+        f"elapsed: {elapsed:.0f}s")
+
     if args.output:
         out_path = Path(args.output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(digest, encoding="utf-8")
-        print(f"Digest saved to {out_path}", file=sys.stderr)
+        log(f"Digest saved to {out_path}")
     else:
         print(digest)
 
     # ── Email delivery (optional) ───────────────────────────────────
     if email_to:
+        log(f"Delivering via email to {email_to}...")
         from src.emailer import email_digest
         try:
             email_digest(digest, email_to)
-            print(f"Digest emailed to {email_to}", file=sys.stderr)
+            log(f"Email sent to {email_to}")
         except Exception as exc:
-            print(
-                f"WARNING: Failed to email digest: {exc}",
-                file=sys.stderr,
-            )
+            log(f"WARNING: Failed to email digest: {exc}")
 
+    t_total = time.time() - t_start
+    log(f"Pipeline finished — total time: {t_total:.0f}s")
     return 0
 
 

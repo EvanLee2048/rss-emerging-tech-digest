@@ -206,7 +206,7 @@ All settings can be configured via environment variables or the `--config` YAML 
 | `--dry-run` | `false` | Skip LLM/Jina calls, use RSS summaries only |
 | `--output PATH` | stdout | Save digest to file |
 | `--state-dir PATH` | `~/.digest-state/` | Watermark state directory |
-| `--timeout SEC` | `30` | HTTP timeout for RSS/Jina/LLM requests |
+| `--timeout SEC` | `120` | HTTP/SMTP timeout for RSS/Jina/LLM requests |
 | `--email-to EMAIL` | — | Email recipient (defaults to SMTP_TARGET env var if omitted) |
 
 ---
