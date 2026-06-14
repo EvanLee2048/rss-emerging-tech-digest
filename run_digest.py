@@ -159,7 +159,9 @@ def main(argv: list[str] | None = None) -> int:
         new_articles = wm.filter_new_articles(fetched)
         if new_articles:
             feeds_with_new += 1
-            log(f"    → {len(new_articles)} new (after URL dedup)")
+            dated = sum(1 for a in new_articles if a.date)
+            log(f"    → {len(new_articles)} new (after URL dedup), "
+                f"{dated} with dates, {len(new_articles)-dated} without)")
         all_new_articles.extend(new_articles)
         wm.save(feed_cfg.watcher_name)  # Persist watermark after each feed
 
@@ -176,6 +178,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.max_days > 0:
         from datetime import datetime as _dt, timedelta
         cutoff = _dt.now().date() - timedelta(days=args.max_days)
+
+        # Show date range for diagnostics
+        dated = [a for a in all_new_articles if a.date]
+        undated = [a for a in all_new_articles if not a.date]
+        if dated:
+            dates = sorted(set(a.date for a in dated))
+            log(f"  Date range in fetched articles: {dates[0]} to {dates[-1]}"
+                f" ({len(dated)} with dates, {len(undated)} without)")
+        elif undated:
+            log(f"  No dates found in any article ({len(undated)} undated)")
+        else:
+            log("  No articles at all — skipping date filter")
+
         before = len(all_new_articles)
         all_new_articles = [
             a for a in all_new_articles
@@ -184,6 +199,9 @@ def main(argv: list[str] | None = None) -> int:
         removed = before - len(all_new_articles)
         if removed:
             log(f"  → {removed} articles older than {args.max_days} days filtered out")
+            if dated and removed == before:
+                log(f"  ⚠ All articles have dates older than {args.max_days} days.")
+                log(f"  ⚠ Try --max-days 30 or higher to capture them, or check if feeds are stale.")
         else:
             log(f"  All {before} articles within {args.max_days}-day window")
 
