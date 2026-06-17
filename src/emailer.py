@@ -322,7 +322,7 @@ def email_digest(
 
     if not smtp_user or not smtp_password:
         raise ValueError(
-            "SMTP_USER and SMTP_PASSWORD must be set via environment variables "
+            "SMTP_USER and SMTP_PASSWORD must be set via config.yaml "
             "or function arguments"
         )
 

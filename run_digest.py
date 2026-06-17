@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """RSS Emerging Tech Digest — end-to-end pipeline entry point.
 
+Loads credentials and settings from config.yaml (see config.yaml for options).
+
 Usage:
     # Full pipeline (all feeds, default config)
     python run_digest.py
@@ -14,21 +16,21 @@ Usage:
     # Save digest to file
     python run_digest.py --output /path/to/digest.txt
 
-Environment variables:
-    LLM_API_KEY     Required. OpenAI-compatible API key.
-    LLM_BASE_URL    Optional. API base URL (default: https://api.deepseek.com/v1)
-    LLM_MODEL       Optional. Model name (default: deepseek-v4-flash)
+    # Use custom config path
+    python run_digest.py --config /path/to/config.yaml
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
-import os
 import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 from src.feeds import fetch_feed, get_feeds
 from src.jina_fetcher import enrich_article
@@ -60,7 +62,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--config",
         type=str,
         default="",
-        help="Path to config.yaml (optional; env vars are used otherwise)",
+        help="Path to config.yaml (default: config.yaml next to this script)",
     )
     p.add_argument(
         "--output",
@@ -71,8 +73,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--timeout",
         type=int,
-        default=120,
-        help="HTTP/SMTP timeout in seconds (default: 120)",
+        default=0,
+        help="Override timeout from config.yaml (default: use value from config)",
     )
     p.add_argument(
         "--email-to",
@@ -80,13 +82,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         nargs="?",
         const="__flag_only__",
         default="",
-        help="Email recipient (defaults to SMTP_TARGET env var if omitted). Requires SMTP_* env vars.",
+        help="Email recipient (defaults to smtp_target in config.yaml if omitted)",
     )
     p.add_argument(
         "--max-days",
         type=int,
-        default=2,
-        help="Only keep articles published within this many days (default: 2). 0 = no limit.",
+        default=0,
+        help="Override max-days from config.yaml (default: use value from config)",
     )
     p.add_argument(
         "--jina-proxy",
@@ -103,33 +105,72 @@ def log(msg: str) -> None:
     print(f"[{ts}] {msg}", file=sys.stderr, flush=True)
 
 
+def load_config(path: str) -> dict[str, Any]:
+    """Load config.yaml. Returns empty dict if file not found."""
+    if not path:
+        # Default: look next to the script
+        path = str(Path(__file__).parent / "config.yaml")
+    try:
+        with open(path) as f:
+            cfg = yaml.safe_load(f) or {}
+        return cfg
+    except FileNotFoundError:
+        return {}
+
+
 def main(argv: list[str] | None = None) -> int:
     t_start = time.time()
     args = parse_args(argv)
 
-    # ── Step 0: Initialise ──────────────────────────────────────────
-    feeds = get_feeds(args.category)
+    # ── Step 0: Load config + initialise ────────────────────────────
+    cfg = load_config(args.config)
+    log(f"Config loaded from: {args.config or 'config.yaml'}")
+
+    # Read everything from config.yaml
+    llm_api_key = str(cfg.get("llm_api_key", ""))
+    llm_base_url = str(cfg.get("llm_base_url", "https://api.deepseek.com/v1"))
+    llm_model = str(cfg.get("llm_model", "deepseek-v4-flash"))
+
+    smtp_host = str(cfg.get("smtp_host", "smtp.163.com"))
+    smtp_port = int(cfg.get("smtp_port", 465))
+    smtp_user = str(cfg.get("smtp_user", ""))
+    smtp_password = str(cfg.get("smtp_password", ""))
+    smtp_from_default = smtp_user if smtp_user else ""
+    smtp_from = str(cfg.get("smtp_from", smtp_from_default))
+    smtp_target = str(cfg.get("smtp_target", ""))
+
+    # CLI flags override config.yaml for non-sensitive settings
+    category = args.category
+    timeout = args.timeout if args.timeout else int(cfg.get("timeout", 120))
+    max_days = args.max_days if args.max_days else int(cfg.get("max_days", 2))
+
+    feeds = get_feeds(category)
     if not feeds:
-        log(f"ERROR: No feeds found for category '{args.category}'")
+        log(f"ERROR: No feeds found for category '{category}'")
         return 1
 
-    log(f"Pipeline started — {len(feeds)} feeds, category={args.category}"
+    log(f"Pipeline started — {len(feeds)} feeds, category={category}"
         f"{' (DRY RUN)' if args.dry_run else ''}")
 
-    # Resolve email target: CLI flag takes priority, fallback to env var
+    # Resolve email target: CLI flag > config/env
     email_to = args.email_to
     if email_to == "__flag_only__":
-        email_to = os.environ.get("SMTP_TARGET", "")
+        email_to = smtp_target
     elif not email_to:
-        email_to = os.environ.get("SMTP_TARGET", "")
+        email_to = smtp_target
 
     if not args.dry_run:
         try:
-            llm = LLMClient(timeout=args.timeout)
+            llm = LLMClient(
+                api_key=llm_api_key,
+                base_url=llm_base_url,
+                model=llm_model,
+                timeout=timeout,
+            )
             log(f"LLM client ready — model={llm.model}, endpoint={llm.base_url}")
         except ValueError as e:
             log(f"ERROR: {e}")
-            log("Set LLM_API_KEY environment variable, or use --dry-run to skip LLM.")
+            log("Set llm_api_key in config.yaml.")
             return 1
     else:
         llm = None  # type: ignore[assignment]
@@ -139,10 +180,10 @@ def main(argv: list[str] | None = None) -> int:
     log("Step 1/7: Fetching RSS feeds & date filter...")
     all_new_articles: list[Article] = []
     feeds_with_new = 0
-    cutoff = datetime.now().date() - timedelta(days=args.max_days) if args.max_days > 0 else None
+    cutoff = datetime.now().date() - timedelta(days=max_days) if max_days > 0 else None
 
     for feed_cfg in feeds:
-        fetched = fetch_feed(feed_cfg, timeout=args.timeout)
+        fetched = fetch_feed(feed_cfg, timeout=timeout)
         if fetched is None:
             log(f"  \u26a0 {feed_cfg.watcher_name}: fetch failed (skipped)")
             continue
@@ -281,6 +322,11 @@ def main(argv: list[str] | None = None) -> int:
                 articles=all_new_articles,
                 feeds_scanned=feeds_scanned,
                 categories_with_new=categories_with_new,
+                smtp_host=smtp_host,
+                smtp_port=smtp_port,
+                smtp_user=smtp_user,
+                smtp_password=smtp_password,
+                from_addr=smtp_from,
             )
             log(f"Email sent to {email_to}")
         except Exception as exc:

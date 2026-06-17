@@ -58,26 +58,18 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 5. Configure environment variables
+### 5. Configure config.yaml
 
-Set your LLM API key (required). Add these to your `~/.bashrc`:
+Edit `config.yaml` and fill in your credentials:
 
-```bash
-# Required: DeepSeek API key (or any OpenAI-compatible provider)
-export LLM_API_KEY="sk-your-deepseek-key"
-
-# Optional: Custom API endpoint (defaults to https://api.deepseek.com/v1)
-# export LLM_BASE_URL="https://api.deepseek.com/v1"
-
-# Optional: Model name (defaults to deepseek-v4-flash)
-# export LLM_MODEL="deepseek-v4-flash"
+```yaml
+llm_api_key: "sk-your-deepseek-key"
+smtp_user: "your-email@163.com"
+smtp_password: "your-auth-code"
+smtp_target: "recipient@example.com"
 ```
 
-Apply to current shell:
-
-```bash
-source ~/.bashrc
-```
+All settings are read from this file — no environment variables needed.
 
 ---
 
@@ -135,15 +127,9 @@ python run_digest.py --jina-proxy
 
 ### Email the digest (HTML newsletter)
 
-```bash
-# Configure SMTP environment variables first
-export SMTP_HOST="smtp.163.com"
-export SMTP_PORT=465
-export SMTP_USER="your-email@163.com"
-export SMTP_PASSWORD="your-auth-code"
-export SMTP_TARGET="recipient@example.com"
+Credentials are read from `config.yaml`. Just run:
 
-# Run and email the digest (uses SMTP_TARGET)
+```bash
 python run_digest.py --email-to
 ```
 
@@ -165,45 +151,36 @@ python run_digest.py --help
 
 To run every morning at 9:00 AM:
 
-```bash
-crontab -e
-```
-
-Add at the top (env vars) and the cron line:
+First, edit `config.yaml` and fill in your credentials (API key, SMTP password, etc.).
+Then add to crontab:
 
 ```cron
-LLM_API_KEY=sk-your-deepseek-key
-SMTP_HOST=smtp.163.com
-SMTP_PORT=465
-SMTP_USER=your-email@163.com
-SMTP_PASSWORD=your-auth-code
-SMTP_TARGET=recipient@example.com
-
+# ── RSS Emerging Tech Digest — daily at 9:00 AM ──
 0 9 * * * cd ~/rss-digest && .venv/bin/python run_digest.py --max-days 1 --jina-proxy --email-to >> ~/rss-digest/digest.log 2>&1
 ```
 
+No env vars needed in crontab — all credentials are read from `config.yaml`.
+
 ---
 
-## Configuration Reference
+All settings are configured via **`config.yaml`**. CLI flags override individual values.
 
-### Environment Variables
+### config.yaml Keys
 
-| Variable | Default | Description |
+| Key | Required | Description |
 |---|---|---|
-| `LLM_API_KEY` | *(required)* | OpenAI-compatible API key (e.g., DeepSeek) |
-| `LLM_BASE_URL` | `https://api.deepseek.com/v1` | API endpoint base URL |
-| `LLM_MODEL` | `deepseek-v4-flash` | Model name for LLM calls |
-
-### Email Configuration
-
-| Variable | Default | Description |
-|---|---|---|
-| `SMTP_HOST` | `smtp.163.com` | SMTP server hostname |
-| `SMTP_PORT` | `465` | SMTP server port (SSL) |
-| `SMTP_USER` | *(required)* | SMTP username (your email) |
-| `SMTP_PASSWORD` | *(required)* | SMTP password or 授权码 |
-| `SMTP_FROM` | `$SMTP_USER` | From email address |
-| `SMTP_TARGET` | — | Default recipient (used when `--email-to` is passed without value) |
+| `llm_api_key` | ✅ | DeepSeek/OpenAI API key |
+| `llm_base_url` | — | API endpoint (default: `https://api.deepseek.com/v1`) |
+| `llm_model` | — | Model name (default: `deepseek-v4-flash`) |
+| `smtp_host` | — | SMTP server (default: `smtp.163.com`) |
+| `smtp_port` | — | SMTP port (default: `465`) |
+| `smtp_user` | ✅* | SMTP username (required for email) |
+| `smtp_password` | ✅* | SMTP password or 授权码 |
+| `smtp_from` | — | From address (defaults to `smtp_user`) |
+| `smtp_target` | — | Default email recipient |
+| `timeout` | — | HTTP timeout in seconds (default: `120`) |
+| `max_days` | — | Article age limit (default: `2`) |
+| `category` | — | Feed filter (default: `all`) |
 
 ### CLI Flags
 
@@ -213,8 +190,8 @@ SMTP_TARGET=recipient@example.com
 | `--dry-run` | `false` | Skip LLM/Jina calls, use RSS summaries only |
 | `--output PATH` | stdout | Save digest to file |
 | `--timeout SEC` | `120` | HTTP/SMTP timeout for RSS/Jina/LLM requests |
-| `--email-to EMAIL` | — | Email recipient (defaults to `SMTP_TARGET` env var if omitted) |
-| `--max-days N` | `2` | Only process articles published within N days. `0` = no limit |
+| `--email-to EMAIL` | — | Email recipient (defaults to `smtp_target` in config.yaml) |
+| `--max-days N` | — | Override max-days from config.yaml |
 | `--jina-proxy` | `false` | Skip direct fetch, use Jina AI Reader proxy directly. Use on EC2/cloud |
 
 ---
@@ -309,10 +286,10 @@ For best results, use a model with ≥8K context window and ≥512 token output.
 → Export the environment variable or set it in `~/.bashrc`.
 
 **Problem:** `SMTP_USER and SMTP_PASSWORD must be set`
-→ These are required when using `--email-to`. Export `SMTP_USER` and `SMTP_PASSWORD` (or 授权码).
+→ These are required for email delivery. Set `smtp_user` and `smtp_password` in config.yaml.
 
-**Problem:** `No recipient — set SMTP_TARGET or pass --email-to`
-→ The target email address is required. Either set `SMTP_TARGET` env var or pass `--email-to recipient@example.com`.
+**Problem:** `llm_api_key not set` or `LLM_API_KEY not set`
+→ Set `llm_api_key` in config.yaml.
 
 **Problem:** Direct fetch returns Cloudflare block on EC2
 → Add `--jina-proxy` to route all article fetches through the Jina AI Reader proxy.
